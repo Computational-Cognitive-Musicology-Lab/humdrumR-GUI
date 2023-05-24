@@ -1,12 +1,4 @@
-#
-# This is the server logic of a Shiny web application. You can run the
-# application by clicking 'Run App' above.
-#
-# Find out more about building applications with Shiny here:
-#
-#    http://shiny.rstudio.com/
-#
-
+# load packages ----
 
 library(shiny)
 library(humdrumR)
@@ -14,8 +6,49 @@ library(shinyWidgets)
 library(billboarder)
 library(shinyAce)
 
+# prep options ----
+humdrumR(syntax = FALSE)
 
-# Define server logic required to draw a histogram
+
+# Functions used by server ----
+
+
+getFieldsTree <- function(humdrumR){
+  fields <- fields(humdrumR)
+  fields <- fields(humdrumR)[,list(list(Name)), by = Type]
+  fields <- setNames(fields$V1, fields$Type)
+  lapply(fields, \(fs) if (length(fs) == 1L) list(fs) else fs)
+}
+
+
+
+
+showHumdrumData <- function(humdrumR, cat = TRUE) {
+  x <- humdrumR[1]
+  # show(x)
+  lines <- as.lines(x)
+  if (cat) cat(lines, sep = '\n') else paste(lines, collapse = '\n')
+  
+}
+
+showHumdrumNotation <- function(humdrumR) {
+  x <- humdrumR[1]
+  
+  lines <- as.lines(x)
+  output <- paste(lines, collapse = '\n')
+  
+  randomID <- paste0(sample(letters, 100, replace = TRUE), collapse = '')
+  
+  fluidPage(tags$script(paste0("displayHumdrum({source: '", randomID,  "', autoResize: 'true'});")),
+            tags$script(id = randomID, type = 'text/x-humdrum', output))
+  
+  
+}
+
+
+
+# shingServer ----
+
 shinyServer(function(input, output, session) {
   
     shinyEnv <- environment()
@@ -23,7 +56,7 @@ shinyServer(function(input, output, session) {
     reactiveVals <- reactiveValues()
     reactiveVals$fieldChoices <- c()
     
-    humData <- reactiveVal()
+    humData <- reactiveVal() # humData is the humdrumR data!
     
     observeEvent(input$filepath,
                              {
@@ -37,209 +70,164 @@ shinyServer(function(input, output, session) {
                                  reactiveVals$SpineChoice <- c(1L, max(spines(humData())$Spines))
                              })
        
-    output$print <- renderPrint(show(humData()[[,reactiveVals$SpineChoice[1]:reactiveVals$SpineChoice[2]]]))
+    # output$print <- renderPrint(show(humData()[[,reactiveVals$SpineChoice[1]:reactiveVals$SpineChoice[2]]]))
     
-    # updateAceEditor(session, 'ace', value = reactiveVals$humString)
     # 
-    observeEvent({humData()}, {
-      humString <- paste(capture.output(
-        printHumdrum(humData(), 
-                     file = as.numeric(input$fileChoice), 
-                     spine_start = reactiveVals$SpineChoice[1],
-                     spine_end = reactiveVals$SpineChoice[2])),
-        collapse = '\n')
-      updateAceEditor(session, 'ace', value = humString)
-    })
+  
     
+    # observeEvent(input$activeFields, {
+    #     humData(humdrumR:::selectFields(humData(), input$activeFields))
+    # })
+    # 
+    # output$fieldsUI <- renderUI({
+    #     selectInput('activeFields', 'Fields',
+    #                 multiple = TRUE, selected = 'Token',
+    #                 choices = reactiveVals$fieldChoices)
+    # })
     
-    observeEvent(input$activeFields, {
-        humData(setActiveFields(humData(), input$activeFields))
-    })
+    # output$spineFilterUI <- renderUI({
+    #     maxspines <- max(spines(humData())$Spines)
+    #     sliderInput('spineFilterNumeric', 'Spine', min = 1, max = maxspines, step = 1L, round = TRUE,
+    #                 value = c(1L,maxspines))
+    # })
     
-    output$fieldsUI <- renderUI({
-        selectInput('activeFields', 'Fields',
-                    multiple = TRUE, selected = 'Token',
-                    choices = reactiveVals$fieldChoices)
-    })
-    
-    output$spineFilterUI <- renderUI({
-        maxspines <- max(spines(humData())$Spines)
-        sliderInput('spineFilterNumeric', 'Spine', min = 1, max = maxspines, step = 1L, round = TRUE,
-                    value = c(1L,maxspines))
-    })
-    
-    observeEvent(input$spineFilterNumeric, {
-      reactiveVals$SpineChoice <- input$spineFilterNumeric
-      humString <- paste(capture.output(
-        printHumdrum(humData(), 
-                     file = as.numeric(input$fileChoice), 
-                     spine_start = reactiveVals$SpineChoice[1],
-                     spine_end = reactiveVals$SpineChoice[2])),
-        collapse = '\n')
-      updateAceEditor(session, 'ace', value = humString)
-    })
 
-    ## Summary tab
-    output$census <- renderPrint({
-        req(humData())
-        census(humData())
+    ## Rendering ui_summary ----
+    output$summary_census <- renderPrint({
+      req(humData())
+      census(humData())
     })
-    output$reference <- renderPrint({
+    output$summary_reference <- renderPrint({
         req(humData())
         reference(humData())
     })
-    output$spines <- renderPrint({
+    output$summary_spines <- renderPrint({
         req(humData())
         spines(humData())
     })
-    output$interpretations <- renderPrint({
+    output$summary_interpretations <- renderPrint({
         req(humData())
         interpretations(humData())
     })
-    ## Console Tab
-    codeInput <- reactive({input$command})
-    output$console <- renderPrint({
-        expr <- try(parse(text = codeInput()), silent = TRUE)
-        if (class(expr) != 'try-error') {
-            eval(expr, envir = shinyEnv)
-        } else {
-            'type a complete R expression'
-        }
+    
+    ## Rendering ui_view ----
+    
+    output$view_fileSelect <- renderUI( {
+      req(humData())
+      fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'files available.'),
+                selectInput('view_fileSelect', 'Select file to view', choices = 1:length(humData()), selected = 1))
+    })
+    observeEvent(input$view_fileSelect, {
+      
+      req(humData())
+      x <- humData()[as.integer(input$view_fileSelect)]
+      humString <- showHumdrumData(x, cat = FALSE)
+      updateAceEditor(session, 'ace', value = humString)
+    })
+    # 
+    # output$view_data <- renderPrint({
+    #   req(humData())
+    #   x <- humData()[as.integer(input$view_fileSelect)]
+    #   showHumdrumData(x)
+    # })
+    output$view_notation <- renderUI({
+      req(humData())
+      x <- humData()[as.integer(input$view_fileSelect)]
+      showHumdrumNotation(x)
     })
     
     
+    ## Console Tab
+    # codeInput <- reactive({input$command})
+    # output$console <- renderPrint({
+    #     expr <- try(parse(text = codeInput()), silent = TRUE)
+    #     if (class(expr) != 'try-error') {
+    #         eval(expr, envir = shinyEnv)
+    #     } else {
+    #         'type a complete R expression'
+    #     }
+    # })
+    # 
+    
     ## Transform tab
-    reactiveVals$Save <- FALSE
+    # reactiveVals$Save <- FALSE
     
     ## Render Score Tab
     
-    output$fileChoicesUI <- renderUI({
-      selectInput(
-        'fileChoice', 
-        'Choose File To Render:',
-        selected = '1',
-        choices = as.character(1:length(humData())))
-    })
-    
-    outputOptions(output, "fileChoicesUI", suspendWhenHidden = FALSE)
-    
-    observeEvent(
-      {input$fileChoice}, 
-      {
-        
-        if(!is.null(humData())) {
-          humString <- paste(capture.output(
-            printHumdrum(humData(), 
-                         file = as.numeric(input$fileChoice),
-                         spine_start = reactiveVals$SpineChoice[1],
-                         spine_end = reactiveVals$SpineChoice[2])),
-            collapse = '\n')
-          updateAceEditor(session, 'ace', value = humString)
-        }
-        output$'myhumdrum-humdrum' <- renderPrint(
-          printHumdrum(humData(), 
-                       file = as.numeric(input$fileChoice),
-                       spine_start = reactiveVals$SpineChoice[1],
-                       spine_end = reactiveVals$SpineChoice[2]))
-        outputOptions(output, "myhumdrum-humdrum", suspendWhenHidden = FALSE)
-        }
-      )
     # output$'myhumdrum-humdrum' <- renderPrint(printHumdrum(humData(), as.numeric(input$fileChoice)))
     # outputOptions(output, "myhumdrum-humdrum", suspendWhenHidden = FALSE)
     
     # reactiveVals$Test <- 'this is a test'
-    
-    output$transformSelect <- renderUI({
-        choices <- list(Pitch = c('kern', 'semits', 'pitch'),
-                        Rhythm = c('recip', 'duration'))[[input$transformType]]
-        selectInput('transformSelect_', 'transformFunction', choices = choices,  
-                    selected = if (input$transformType == 'Pitch') 'kern' else 'recip')
-    })
-    output$transformArguments <- renderUI({
-        if (input$transformType == 'Pitch') {
-            verticalLayout(
-                switchInput('pitchArg_complex', onLabel = 'complex', offLabel = 'simple', value = TRUE, size = 'mini'),
-                switchInput('pitchArg_specific', onLabel = 'specific', offLabel = 'generic', value = TRUE, size = 'mini'))
-        } else {
-            checkboxInput('placeholder', 'rhythm arguments')
-        }
-        
-    })
-    
-    output$transformFieldName <- renderUI({
-        textInput('transformFieldname_', 'New Field Name', value = 'pipe')
-    })
-    
-    output$transformButton <- renderUI({
-        actionButton('transformAction', 'Execute and save to new field')
-    })
-    
-    output$transformed <- renderPrint({
-      show(humData())
-    })
-      
-    observeEvent({input$transformAction},
-        {
-               
-             func <- rlang::sym(input$transformSelect_)
-             fieldName <- rlang::sym(input$transformFieldname_)
-             # funccall <- call(func, alist(x = Token) )#, 
-                              # complex = pitchArg_complex,
-                              # specific = pitchArg_specific))
-             funccall <- rlang::expr((!!fieldName) <- (!!func)(x = Token, 
-                                            complex = !!input$pitchArg_complex,
-                                            specific = !!input$pitchArg_specific))
-             
-             formula <- rlang::new_formula(quote(do), funccall)#,
-                                           # env = as.environment(list(pitchArg_complex = input$pitchArg_complex,
-                                                                     # pitchArg_specific = input$pitchArg_specific)))
-             # reactiveVals$Test <- formula
-             humData(within(humData(), formula))
-             updateSelectInput(session, "activeFields", selected = getActiveFields(humData()))
-             # transformed_data <- within(humData(), formula)
-             reactiveVals$fieldChoices <- getFieldsTree(humData())
-        })
-    
-    output$plotButton <- renderUI({
-      actionButton('plotAction', 'Plot')
-    })
-    
-    output$plotSelect <- renderUI({
-      choices <- c('hist', 'boxplot')
-      selectInput('plotSelect_', 'Plot Type', choices = choices,  
-                  selected = 'hist')
-    })
-    
-    observeEvent({input$plotAction}, {
-      func <- rlang::sym(input$plotSelect_)
-      activeField <- rlang::sym(getActiveFields(humData()))
-      funccall <- rlang::expr((!!func)(!!activeField))
-      formula <- rlang::new_formula(quote(do), funccall)
-      output$plotRender <- renderPlot(within(humData(), formula))
-    })
+    # 
+    # output$transformSelect <- renderUI({
+    #     choices <- list(Pitch = c('kern', 'semits', 'pitch'),
+    #                     Rhythm = c('recip', 'duration'))[[input$transformType]]
+    #     selectInput('transformSelect_', 'transformFunction', choices = choices,  
+    #                 selected = if (input$transformType == 'Pitch') 'kern' else 'recip')
+    # })
+    # output$transformArguments <- renderUI({
+    #     if (input$transformType == 'Pitch') {
+    #         verticalLayout(
+    #             switchInput('pitchArg_complex', onLabel = 'complex', offLabel = 'simple', value = TRUE, size = 'mini'),
+    #             switchInput('pitchArg_specific', onLabel = 'specific', offLabel = 'generic', value = TRUE, size = 'mini'))
+    #     } else {
+    #         checkboxInput('placeholder', 'rhythm arguments')
+    #     }
+    #     
+    # })
+    # 
+    # output$transformFieldName <- renderUI({
+    #     textInput('transformFieldname_', 'New Field Name', value = 'pipe')
+    # })
+    # 
+    # output$transformButton <- renderUI({
+    #     actionButton('transformAction', 'Execute and save to new field')
+    # })
+    # 
+    # output$transformed <- renderPrint({
+    #   show(humData())
+    # })
+    #   
+    # observeEvent({input$transformAction},
+    #     {
+    #            
+    #          func <- rlang::sym(input$transformSelect_)
+    #          fieldName <- rlang::sym(input$transformFieldname_)
+    #          # funccall <- call(func, alist(x = Token) )#, 
+    #                           # complex = pitchArg_complex,
+    #                           # specific = pitchArg_specific))
+    #          funccall <- rlang::expr((!!fieldName) <- (!!func)(x = Token, 
+    #                                         complex = !!input$pitchArg_complex,
+    #                                         specific = !!input$pitchArg_specific))
+    #          
+    #          formula <- rlang::new_formula(quote(do), funccall)#,
+    #                                        # env = as.environment(list(pitchArg_complex = input$pitchArg_complex,
+    #                                                                  # pitchArg_specific = input$pitchArg_specific)))
+    #          # reactiveVals$Test <- formula
+    #          humData(eval(rlang::expr(within(humData(), !!funccall))))
+    #          # humData(within(humData(), formula))
+    #          updateSelectInput(session, "activeFields", selected = selectedFields(humData()))
+    #          # transformed_data <- within(humData(), formula)
+    #          reactiveVals$fieldChoices <- getFieldsTree(humData())
+    #     })
+    # 
+    # output$plotButton <- renderUI({
+    #   actionButton('plotAction', 'Plot')
+    # })
+    # 
+    # output$plotSelect <- renderUI({
+    #   choices <- c('hist', 'boxplot')
+    #   selectInput('plotSelect_', 'Plot Type', choices = choices,  
+    #               selected = 'hist')
+    # })
+    # 
+    # observeEvent({input$plotAction}, {
+    #   func <- rlang::sym(input$plotSelect_)
+    #   activeField <- rlang::sym(selectedFields(humData())[1])
+    #   funccall <- rlang::expr((!!func)(!!activeField))
+    #   formula <- rlang::new_formula(quote(do), funccall)
+    #   output$plotRender <- renderPlot(within(humData(), formula))
+    # })
 })
 
 
-
-### Tools ----
-
-getFieldsTree <- function(humdrumR){
-    fields <- fields(humdrumR)
-    fields <- fields(humdrumR)[,list(list(Name)), by = Type]
-    fields <- setNames(fields$V1, fields$Type)
-    lapply(fields, \(fs) if (length(fs) == 1L) list(fs) else fs)
-}
-
-
-printHumdrum <- function(humdrumR, file=1, spine_start=1, spine_end=max(spines(humdrumR)$Spines)) {
-    tokmat <- as.matrix(humdrumR[file][[,spine_start:spine_end]])
-    # File <- gsub('\\..*$', '', rownames(tokmat))
-    # submat <- tokmat[File==file,]
-    # submat <- submat[is.na(submat(Spine))|(Spine>=spine_start&Spine<=spine_start),]
-    subtab <- as.data.frame(tokmat)
-    subtab[is.na(subtab)] = ''
-    lines <- do.call('paste', c(subtab, list(sep='\t')))
-    lines <- do.call('trimws', list(lines))
-    collapsed <- paste(lines, collapse='\n')
-    cat(collapsed)
-}
