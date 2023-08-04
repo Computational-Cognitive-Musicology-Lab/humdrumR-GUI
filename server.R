@@ -3,7 +3,6 @@
 library(shiny)
 library(humdrumR)
 library(shinyWidgets)
-library(billboarder)
 library(shinyAce)
 
 # prep options ----
@@ -64,11 +63,19 @@ shinyServer(function(input, output, session) {
     
     humData <- reactiveVal() # humData is the humdrumR data!
     
+    
+    # THIS THING DOES ALL THE WORK TO READ FILES!
     observeEvent(input$filepath,
                              {
-                                 file <- input$filepath
+                                 files <- input$filepath
                                  req(file)
-                                 hum <- readHumdrum(file$datapath)
+                                 for (i in 1:nrow(files)) {
+                                   file.rename(files$datapath[i], files$name[i])
+                                 }
+                                 hum <- readHumdrum(files$name)
+                                 for (file in files$name) file.remove(file)
+                                 # hum@Humtable[ , Filename := paste0('Test_', Filename)]
+                                 # hum@Humtable[ , Filename := files$name[match(Filename, files$datapath)]]
                                  
                                  reactiveVals$fieldChoices <- getFieldsTree(hum)
                                  humData(hum)
@@ -122,7 +129,7 @@ shinyServer(function(input, output, session) {
     output$view_fileSelect <- renderUI( {
       req(humData())
       
-      files <- census(humData())$Filenames
+      files <- unlist(census(humData())$Filenames)
       files <- setNames(seq_along(files), files)
       fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'files available to view.'),
                 if (input$view_type %in% c('humdrumR', 'data.frame')) {
@@ -139,6 +146,7 @@ shinyServer(function(input, output, session) {
       req(humData())
       
       fields <- reactiveVals$fieldChoices
+      fields <- fields[names(fields) == 'D']
       if (input$view_type %in% c('humdrumR', 'data.frame') && length(fields) > 1L) {
         
         fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'data fields available to view.'),
