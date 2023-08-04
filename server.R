@@ -27,6 +27,8 @@ showHumdrumData <- function(humdrumR, cat = TRUE) {
   x <- humdrumR[1]
   # show(x)
   lines <- as.lines(x)
+  
+  lines[grepl('^!!!', lines)] <- gsub('\t*', '', lines[grepl('^!!!', lines)])
   if (cat) cat(lines, sep = '\n') else paste(lines, collapse = '\n')
   
 }
@@ -50,6 +52,10 @@ showHumdrumNotation <- function(humdrumR) {
 # shingServer ----
 
 shinyServer(function(input, output, session) {
+    observeEvent(input$startGUI, {
+      updateTabsetPanel(session, 'hidden_tabs', selected = 'GUI_panel')
+    })
+    
   
     shinyEnv <- environment()
     
@@ -112,10 +118,57 @@ shinyServer(function(input, output, session) {
     
     ## Rendering ui_view ----
     
+    
     output$view_fileSelect <- renderUI( {
       req(humData())
-      fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'files available.'),
-                selectInput('view_fileSelect', 'Select file to view', choices = 1:length(humData()), selected = 1))
+      
+      files <- census(humData())$Filenames
+      files <- setNames(seq_along(files), files)
+      fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'files available to view.'),
+                if (input$view_type %in% c('humdrumR', 'data.frame')) {
+                  selectInput('view_fileSelect', 
+                              'Select files to view' , multiple = TRUE,
+                              choices = files, selected = 1:length(humData())) 
+                  } else {
+                    selectInput('view_fileSelect', 
+                                'Select file to view' , multiple = FALSE,
+                                choices = files, selected = 1)   
+                              })
+    })
+    output$view_fieldSelect <- renderUI( {
+      req(humData())
+      
+      fields <- reactiveVals$fieldChoices
+      if (input$view_type %in% c('humdrumR', 'data.frame') && length(fields) > 1L) {
+        
+        fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'data fields available to view.'),
+                  
+                  selectInput('view_fieldSelect', 
+                              'Select data fields to view' , multiple = TRUE,
+                              choices = fields, selected = 'Token') )
+      }
+
+    })
+    
+    
+    
+
+    output$view_data <- renderPrint({ 
+        req(humData())
+      
+        humdata <- humData()[as.integer(input$view_fileSelect)]
+        if (!is.null(input$view_fieldSelect)) humdata <- humdata |> select(input$view_fieldSelect)
+        print(humdata, view = if (input$view_type == 'data.frame') 'table' else 'humdrum')
+      })
+    
+    
+    observeEvent(input$view_type, {
+      view_type <- switch(input$view_type,
+                          humdrumR = ,
+                          data.frame = 'view_data',
+                          'Raw file' = 'view_ace',
+                          Notation = 'view_notation')
+      updateTabsetPanel(session, 'view_tabs', selected = view_type)
     })
     observeEvent(input$view_fileSelect, {
       
@@ -124,12 +177,7 @@ shinyServer(function(input, output, session) {
       humString <- showHumdrumData(x, cat = FALSE)
       updateAceEditor(session, 'ace', value = humString)
     })
-    # 
-    # output$view_data <- renderPrint({
-    #   req(humData())
-    #   x <- humData()[as.integer(input$view_fileSelect)]
-    #   showHumdrumData(x)
-    # })
+
     output$view_notation <- renderUI({
       req(humData())
       x <- humData()[as.integer(input$view_fileSelect)]
@@ -137,17 +185,6 @@ shinyServer(function(input, output, session) {
     })
     
     
-    ## Console Tab
-    # codeInput <- reactive({input$command})
-    # output$console <- renderPrint({
-    #     expr <- try(parse(text = codeInput()), silent = TRUE)
-    #     if (class(expr) != 'try-error') {
-    #         eval(expr, envir = shinyEnv)
-    #     } else {
-    #         'type a complete R expression'
-    #     }
-    # })
-    # 
     
     ## Transform tab
     # reactiveVals$Save <- FALSE

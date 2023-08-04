@@ -16,17 +16,23 @@ library(shinyAce)
 
 
 # Define pieces of UI ----
+## welcome UI ---
+
+
+ui_landing <- fluidPage(title = 'humdrumR GUI', 
+                        h1("Welcome to humdrumR"),
+                        shiny::p("HumdrumR is a software toolkit for analyzing musical data encoded in the humdrum syntax.",
+                                 "The main page for HumdrumR is", a('here', href= "https://humdrumR.ccml.gtcmt.gatech.edu"), "."),
+                        shiny::p("This page provides a experimental graphical user interface (GUI) for using humdrumR."),
+                        actionButton('startGUI', 'Start the GUI', icon = icon('play')))
 
 ## File load ui ----
 
 
 ui_fileLoad <- fluidPage(
-  h1("Welcome to humdrumR!"),
-  shiny::p("HumdrumR is a software toolk fit analyzing musical data encoded in the humdrum syntax.",
-    "The main page for HumdrumR is", a('here', href= "https://computational-cognitive-musicology-lab.github.io/humdrumR/index.html"), "."),
-  shiny::p("This page provides a graphical user interface (GUI) for using the humdrumR toolkit. To get started, use the dialog below to load humdrum",
-           "files from your computer."),
-  fileInput('filepath', 'Select a File', multiple = TRUE))
+  h1("Load files"),
+  shiny::p('Select humdrum-syntax files from your local machine to upload and parse.'), 
+  fileInput('filepath', 'Select files', multiple = TRUE))
 
 ## Ace Editor
 
@@ -71,7 +77,6 @@ ui_summary <- tabsetPanel(type = 'pills',
 
 ## view UI -----
 
-
 ui_aceEditor <- div(
   # tags$script(src = "https://raw.githubusercontent.com/humdrum-tools/verovio-humdrum-viewer/gh-pages/scripts/ace/mode-humdrum.js"),
   # tags$script(src = "https://raw.githubusercontent.com/humdrum-tools/verovio-humdrum-viewer/gh-pages/scripts/ace/theme-humdrum_light.js"),
@@ -90,11 +95,16 @@ ui_aceEditor <- div(
 )
 
 
-ui_view <- sidebarLayout(sidebarPanel(uiOutput("view_fileSelect")),
-                         mainPanel(tabsetPanel(type = 'pills',
-                                               tabPanel('Data view', ui_aceEditor),
-                                               # tabPanel('Data view', verbatimTextOutput('view_data')),
-                                               tabPanel('Notation view',  htmlOutput("view_notation")))) )
+ui_view <- sidebarLayout(sidebarPanel(width = 2, 
+                                      uiOutput("view_fileSelect"),
+                                      uiOutput("view_fieldSelect"),
+                                      selectInput('view_type', label = 'View Type', 
+                                                  selected = 'humdrumR', choices = c('humdrumR', 'data.frame', 'Raw file', 'Notation') )),
+                         mainPanel(width = 10, 
+                                   tabsetPanel(type = 'hidden', id = 'view_tabs',
+                                               tabPanelBody('view_data', verbatimTextOutput('view_data')),
+                                               tabPanelBody('view_ace', ui_aceEditor),
+                                               tabPanelBody('view_notation', htmlOutput("view_notation")))) )
 # ui_score <- div(
 #       # tags$script(src="https://plugin.humdrum.org/scripts/humdrum-notation-plugin-worker.js"),
 #       # tags$script(id="example", )
@@ -140,14 +150,19 @@ shinyUI(fluidPage(
   tags$head(tags$script(src = "https://plugin.humdrum.org/scripts/humdrum-notation-plugin-worker.js")),
   
   titlePanel("humdrumR"),
-  mainPanel(
-    tabsetPanel(type = 'tabs',
-                tabPanel('Upload humdrum', ui_fileLoad),
-                tabPanel('Filter data', ui_fileLoad),
-                tabPanel('Data summaries', ui_summary),
-                tabPanel('View Humdrum', ui_view),
-                # tabPanel('Transform Data', ui_transform),
-                # tabPanel('Plot Data', ui_plot)
-                ))
+  mainPanel(width = 12,
+    tabsetPanel(type = 'hidden', id = 'hidden_tabs',
+                tabPanelBody('landing_panel', ui_landing),
+                tabPanelBody('GUI_panel', tabsetPanel(type = 'tabs',
+                                         tabPanel('Load data', ui_fileLoad),
+                                         tabPanel('Summarize data', ui_summary),
+                                         tabPanel('Filter data', ui_fileLoad),
+                                         tabPanel('View data', ui_view)
+                                         # tabPanel('Transform Data', ui_transform),
+                                         # tabPanel('Plot Data', ui_plot)
+                )
+                )
+    )
+  )
   ))
 
