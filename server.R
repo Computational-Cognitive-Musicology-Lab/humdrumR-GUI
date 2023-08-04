@@ -47,6 +47,14 @@ showHumdrumNotation <- function(humdrumR) {
 }
 
 
+transformExpression <- function(input) {
+  simple <- if (!input$pitchArg_complex) 'simple = TRUE'
+  generic <- if (!input$pitchArg_specific) 'generic = TRUE'
+  args <- paste(c('Token', simple, generic), collapse = ', ')
+  
+  paste0('humdrumData |>\n',
+         '  ', 'mutate(', input$transformFieldname, ' = ',  input$transformSelect, '(', args, '))')
+}
 
 # shingServer ----
 
@@ -145,11 +153,10 @@ shinyServer(function(input, output, session) {
     output$view_fieldSelect <- renderUI( {
       req(humData())
       
-      fields <- reactiveVals$fieldChoices
-      fields <- fields[names(fields) == 'D']
+      fields <- fields(humData(), 'Data')$Name 
       if (input$view_type %in% c('humdrumR', 'data.frame') && length(fields) > 1L) {
         
-        fluidPage(shiny::p(humdrumR:::num2print(length(humData()), capitalize = TRUE), 'data fields available to view.'),
+        fluidPage(shiny::p(humdrumR:::num2print(length(fields), capitalize = TRUE), 'data fields available to view.'),
                   
                   selectInput('view_fieldSelect', 
                               'Select data fields to view' , multiple = TRUE,
@@ -165,7 +172,7 @@ shinyServer(function(input, output, session) {
         req(humData())
       
         humdata <- humData()[as.integer(input$view_fileSelect)]
-        if (!is.null(input$view_fieldSelect)) humdata <- humdata |> select(input$view_fieldSelect)
+        if (!is.null(input$view_fieldSelect)) humdata <- humdrumR:::selectFields(humdata, input$view_fieldSelect)
         print(humdata, view = if (input$view_type == 'data.frame') 'table' else 'humdrum')
       })
     
@@ -195,66 +202,47 @@ shinyServer(function(input, output, session) {
     
     
     ## Transform tab
-    # reactiveVals$Save <- FALSE
     
     ## Render Score Tab
     
-    # output$'myhumdrum-humdrum' <- renderPrint(printHumdrum(humData(), as.numeric(input$fileChoice)))
-    # outputOptions(output, "myhumdrum-humdrum", suspendWhenHidden = FALSE)
-    
-    # reactiveVals$Test <- 'this is a test'
     # 
-    # output$transformSelect <- renderUI({
-    #     choices <- list(Pitch = c('kern', 'semits', 'pitch'),
-    #                     Rhythm = c('recip', 'duration'))[[input$transformType]]
-    #     selectInput('transformSelect_', 'transformFunction', choices = choices,  
-    #                 selected = if (input$transformType == 'Pitch') 'kern' else 'recip')
-    # })
-    # output$transformArguments <- renderUI({
-    #     if (input$transformType == 'Pitch') {
-    #         verticalLayout(
-    #             switchInput('pitchArg_complex', onLabel = 'complex', offLabel = 'simple', value = TRUE, size = 'mini'),
-    #             switchInput('pitchArg_specific', onLabel = 'specific', offLabel = 'generic', value = TRUE, size = 'mini'))
-    #     } else {
-    #         checkboxInput('placeholder', 'rhythm arguments')
-    #     }
-    #     
-    # })
+    output$transformSelect <- renderUI({
+        choices <- list(Pitch = c('kern', 'semits', 'pitch'),
+                        Rhythm = c('recip', 'duration'))[[input$transformType]]
+        selectInput('transformSelect', 'transformFunction', choices = choices,
+                    selected = if (input$transformType == 'Pitch') 'kern' else 'recip')
+    })
+    output$transformArguments <- renderUI({
+        if (input$transformType == 'Pitch') {
+            verticalLayout(
+                switchInput('pitchArg_complex', onLabel = 'complex', offLabel = 'simple', value = TRUE, size = 'mini'),
+                switchInput('pitchArg_specific', onLabel = 'specific', offLabel = 'generic', value = TRUE, size = 'mini'))
+        } else {
+            checkboxInput('placeholder', 'rhythm arguments')
+        }
+
+    })
     # 
-    # output$transformFieldName <- renderUI({
-    #     textInput('transformFieldname_', 'New Field Name', value = 'pipe')
-    # })
+    output$transformFieldName <- renderUI({
+        textInput('transformFieldname', 'New Field Name', 
+                  value = stringr::str_to_title(input$transformSelect))
+    })
     # 
-    # output$transformButton <- renderUI({
-    #     actionButton('transformAction', 'Execute and save to new field')
-    # })
+    output$transformButton <- renderUI({
+        actionButton('transformAction', 'Execute and save to new field')
+    })
     # 
-    # output$transformed <- renderPrint({
-    #   show(humData())
-    # })
+    output$transformExpression <- renderUI({
+      pre(transformExpression(input))
+    })
     #   
-    # observeEvent({input$transformAction},
-    #     {
-    #            
-    #          func <- rlang::sym(input$transformSelect_)
-    #          fieldName <- rlang::sym(input$transformFieldname_)
-    #          # funccall <- call(func, alist(x = Token) )#, 
-    #                           # complex = pitchArg_complex,
-    #                           # specific = pitchArg_specific))
-    #          funccall <- rlang::expr((!!fieldName) <- (!!func)(x = Token, 
-    #                                         complex = !!input$pitchArg_complex,
-    #                                         specific = !!input$pitchArg_specific))
-    #          
-    #          formula <- rlang::new_formula(quote(do), funccall)#,
-    #                                        # env = as.environment(list(pitchArg_complex = input$pitchArg_complex,
-    #                                                                  # pitchArg_specific = input$pitchArg_specific)))
-    #          # reactiveVals$Test <- formula
-    #          humData(eval(rlang::expr(within(humData(), !!funccall))))
-    #          # humData(within(humData(), formula))
-    #          updateSelectInput(session, "activeFields", selected = selectedFields(humData()))
-    #          # transformed_data <- within(humData(), formula)
-    #          reactiveVals$fieldChoices <- getFieldsTree(humData())
-    #     })
+    observeEvent({input$transformAction},
+        {
+             expr <- transformExpression(input)
+             expr <- gsub('humdrumData', 'humData()', expr)
+             
+             humData(eval(parse(text = expr)[[1]]))
+        })
     # 
     # output$plotButton <- renderUI({
     #   actionButton('plotAction', 'Plot')

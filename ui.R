@@ -56,9 +56,11 @@ ui_transform <- verticalLayout(
     splitLayout(selectInput('transformType', 'Transform Type', choices = c('Pitch', 'Rhythm')),
                 verticalLayout(uiOutput('transformSelect') ,uiOutput('transformArguments'))),
     splitLayout(uiOutput('transformButton'), uiOutput('transformFieldName')),
-    verbatimTextOutput('transformed')
+    htmlOutput('transformExpression')
 
 )
+
+tags$style(type="text/css", "#transformExpression {white-space: pre-wrap;}")
 
 ## data plot UI ----
 
@@ -157,8 +159,8 @@ shinyUI(fluidPage(
                                          tabPanel('Load data', ui_fileLoad),
                                          tabPanel('Summarize data', ui_summary),
                                          tabPanel('Filter data', ui_fileLoad),
-                                         tabPanel('View data', ui_view)
-                                         # tabPanel('Transform Data', ui_transform),
+                                         tabPanel('View data', ui_view),
+                                         tabPanel('Transform Data', ui_transform),
                                          # tabPanel('Plot Data', ui_plot)
                 )
                 )
