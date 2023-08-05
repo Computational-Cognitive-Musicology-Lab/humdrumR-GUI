@@ -8,8 +8,71 @@ library(shinyAce)
 # prep options ----
 humdrumR(syntax = FALSE)
 
+# Library of commands
 
+func_library <- list(Pitch = c('kern', 'pitch', 'solfa', 'semits', 'mint', 'hint'),
+                     Rhythm = c('recip', 'duration', 'dur', 'timeline', 'count', 'metcount'))
+
+args_TF <- rbind(data.frame(Func = func_library$Pitch, Default = 'complex', Option = 'simple'),
+                 data.frame(Func = func_library$Pitch, Default = 'specific', Option = 'generic'))
 # Functions used by server ----
+
+getTransformFunctions <- function(input) {
+  selected <- c()
+  for (type in paste0('transformFunctions_', names(func_library))) {
+    selected <- c(selected, input[[type]])
+  }
+  selected
+}
+
+
+
+makeFuncCaller <- function(func) {
+  args <- list()
+  argsTable <- subset(args_TF, Func == func)
+  for (i in seq_len(nrow(argsTable))) {
+    row <- argsTable[i, ]
+   args <- c(args, 
+             list(switchInput(paste0(func, '_arg_', row$Default), onLabel = row$Default, offLabel = row$Option, value = TRUE, size = 'mini')))
+  }
+          do.call(tags$tr, lapply(c(list(paste0(func, '('), args, ')')), tags$td))
+  
+  
+}
+
+
+transformExpression <- function(input) {
+  # simple <- if (!input$pitchArg_complex) 'simple = TRUE'
+  # generic <- if (!input$pitchArg_specific) 'generic = TRUE'
+  # args <- paste(c('Token', simple, generic), collapse = ', ')
+  
+  funcs <- getTransformFunctions(input)
+  
+  calls <- sapply(funcs, funcExpression, input = input)
+  
+  fieldName <- stringr::str_to_title(funcs)
+  
+  funcs <- paste(paste0(fieldName, ' = ', calls), collapse = ',\n         ')
+  paste0('humdrumData |>\n',
+         '  ', 'mutate(', funcs,')')
+}
+
+funcExpression <- function(func, input) {
+  argsTable <- subset(args_TF, Func == func)
+  
+  inputs <- unlist(lapply(argsTable$Default, \(default) input[[paste0(func, '_arg_', default)]]))
+  argsTable <- argsTable[!inputs, ]
+  
+  args <- c('Token', if (nrow(argsTable)) with(argsTable, paste0(Option, ' = TRUE')))
+  
+  args <- paste(args, collapse = ', ')
+  
+  paste0(func, '(', args, ')')
+  
+  
+  
+  
+}
 
 
 getFieldsTree <- function(humdrumR){
@@ -44,16 +107,6 @@ showHumdrumNotation <- function(humdrumR) {
             tags$script(id = randomID, type = 'text/x-humdrum', output))
   
   
-}
-
-
-transformExpression <- function(input) {
-  simple <- if (!input$pitchArg_complex) 'simple = TRUE'
-  generic <- if (!input$pitchArg_specific) 'generic = TRUE'
-  args <- paste(c('Token', simple, generic), collapse = ', ')
-  
-  paste0('humdrumData |>\n',
-         '  ', 'mutate(', input$transformFieldname, ' = ',  input$transformSelect, '(', args, '))')
 }
 
 # shingServer ----
@@ -173,7 +226,9 @@ shinyServer(function(input, output, session) {
       
         humdata <- humData()[as.integer(input$view_fileSelect)]
         if (!is.null(input$view_fieldSelect)) humdata <- humdrumR:::selectFields(humdata, input$view_fieldSelect)
-        print(humdata, view = if (input$view_type == 'data.frame') 'table' else 'humdrum')
+        print(humdata, 
+              view = if (input$view_type == 'data.frame') 'table' else 'humdrum', 
+              dataTypes = if (input$view_type == 'humdrumR') 'GLIMDd' else 'D')
       })
     
     
@@ -203,25 +258,31 @@ shinyServer(function(input, output, session) {
     
     ## Transform tab
     
-    ## Render Score Tab
     
-    # 
     output$transformSelect <- renderUI({
-        choices <- list(Pitch = c('kern', 'semits', 'pitch'),
-                        Rhythm = c('recip', 'duration'))[[input$transformType]]
-        selectInput('transformSelect', 'transformFunction', choices = choices,
-                    selected = if (input$transformType == 'Pitch') 'kern' else 'recip')
+      tabpanels <- lapply(names(func_library),
+             \(type) {
+               tabPanel(type, style = 'height:300px;',
+                        selectizeInput(inputId = paste0('transformFunctions_', type),
+                                       label = paste0(type, ' functions'),
+                                       choices = func_library[[type]], multiple = TRUE, selected = NULL))
+             })
+      
+       do.call('tabsetPanel', tabpanels)
     })
-    output$transformArguments <- renderUI({
-        if (input$transformType == 'Pitch') {
-            verticalLayout(
-                switchInput('pitchArg_complex', onLabel = 'complex', offLabel = 'simple', value = TRUE, size = 'mini'),
-                switchInput('pitchArg_specific', onLabel = 'specific', offLabel = 'generic', value = TRUE, size = 'mini'))
+    
+    output$transformFunctions <- renderUI({
+      funcs <- getTransformFunctions(input)
+      
+      if (length(funcs)) {
+        do.call(tags$table, lapply(funcs, makeFuncCaller))
         } else {
-            checkboxInput('placeholder', 'rhythm arguments')
+          div('No functions selected')
         }
-
+      
     })
+    # 
+ 
     # 
     output$transformFieldName <- renderUI({
         textInput('transformFieldname', 'New Field Name', 

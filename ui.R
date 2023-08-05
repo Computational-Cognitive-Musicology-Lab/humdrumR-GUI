@@ -53,8 +53,7 @@ ui_filter <- verticalLayout(
 ## apply transforms to data ---- 
 
 ui_transform <- verticalLayout(
-    splitLayout(selectInput('transformType', 'Transform Type', choices = c('Pitch', 'Rhythm')),
-                verticalLayout(uiOutput('transformSelect') ,uiOutput('transformArguments'))),
+    splitLayout(uiOutput('transformSelect'), uiOutput('transformFunctions')),
     splitLayout(uiOutput('transformButton'), uiOutput('transformFieldName')),
     htmlOutput('transformExpression')
 
