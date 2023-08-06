@@ -45,19 +45,20 @@ ui_fields <- uiOutput('fieldsUI')
 ## Filter ui -----
 
 ui_filter <- verticalLayout(
-    selectInput('filterBy', 'Filter by', choices = c('File', 'Spine', 'Bar', 'Record')),
-    actionButton('filterAction', 'Do Filter')
-
+  htmlOutput('humdrumRexpression1'),
+  uiOutput('filter_exclusive'),
+  uiOutput('filter_spine')
 )
 
 ## apply transforms to data ---- 
 
 ui_transform <- verticalLayout(
-    splitLayout(uiOutput('transformSelect'), uiOutput('transformFunctions')),
-    splitLayout(uiOutput('transformButton'), uiOutput('transformFieldName')),
-    htmlOutput('transformExpression')
-
+  htmlOutput('humdrumRexpression2'),
+  splitLayout( uiOutput('transformSelect'), uiOutput('transformFunctions')
+               
+  )
 )
+
 
 tags$style(type="text/css", "#transformExpression {white-space: pre-wrap;}")
 
@@ -142,6 +143,10 @@ ui_view <- sidebarLayout(sidebarPanel(width = 2,
 #   ui_score)
 
 
+## tabulate UI ----
+
+
+ui_tabulate <- plotOutput('tabulate')
 
 
 # Define UI ----
@@ -157,12 +162,11 @@ shinyUI(fluidPage(
                 tabPanelBody('GUI_panel', tabsetPanel(type = 'tabs',
                                          tabPanel('Load data', ui_fileLoad),
                                          tabPanel('Summarize data', ui_summary),
-                                         tabPanel('Filter data', ui_fileLoad),
+                                         tabPanel('Filter data', ui_filter),
+                                         tabPanel('Transform data', ui_transform),
                                          tabPanel('View data', ui_view),
-                                         tabPanel('Transform Data', ui_transform),
-                                         # tabPanel('Plot Data', ui_plot)
-                )
-                )
+                                         tabPanel('Tabulate data', ui_tabulate)
+                                         ))
     )
   )
   ))

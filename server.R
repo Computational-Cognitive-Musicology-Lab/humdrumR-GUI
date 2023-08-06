@@ -11,59 +11,112 @@ humdrumR(syntax = FALSE)
 # Library of commands
 
 func_library <- list(Pitch = c('kern', 'pitch', 'solfa', 'semits', 'mint', 'hint'),
-                     Rhythm = c('recip', 'duration', 'dur', 'timeline', 'count', 'metcount'))
+                     Rhythm = c('recip', 'duration', 'dur'),
+                     Time = c('timeline', 'timestamp'),
+                     Meter = c('count', 'metcount'))
 
-args_TF <- rbind(data.frame(Func = func_library$Pitch, Default = 'complex', Option = 'simple'),
-                 data.frame(Func = func_library$Pitch, Default = 'specific', Option = 'generic'))
+args_library <- rbind(data.table(Func = func_library$Pitch, Type = 'TF', Arg = 'complex', Options = list(c('complex', 'simple'))), 
+                      data.table(Func = func_library$Pitch, Type = 'TF', Arg = 'specific', Options = list(c('specific', 'generic'))),
+                      data.table(Func = func_library$Rhythm, Type = 'select', Arg = 'scale',  Options = list(c('1', '2', '4', '8', '16', '32'))))
+
 # Functions used by server ----
-
-getTransformFunctions <- function(input) {
-  selected <- c()
-  for (type in paste0('transformFunctions_', names(func_library))) {
-    selected <- c(selected, input[[type]])
-  }
-  selected
-}
 
 
 
 makeFuncCaller <- function(func) {
   args <- list()
-  argsTable <- subset(args_TF, Func == func)
-  for (i in seq_len(nrow(argsTable))) {
-    row <- argsTable[i, ]
-   args <- c(args, 
-             list(switchInput(paste0(func, '_arg_', row$Default), onLabel = row$Default, offLabel = row$Option, value = TRUE, size = 'mini')))
+  
+  args_library <- args_library[Func == func]
+  for (i in seq_len(nrow(args_library))) {
+    with(args_library[i], 
+         {
+           id <- paste0(func, '_arg_', Arg)
+           arg <- if (Type == 'TF') {
+             switchInput(inputId = id,
+                         onLabel = Options[[1]][1], offLabel = Options[[1]][2],
+                         value = TRUE, size = 'mini')
+           } else {
+                      selectInput(inputId = id,
+                                  Arg, choices = Options[[1]],
+                                  selected = Options[[1]][1])
+             
+           }
+             
+           args <<- c(args, list(arg))
+           
+         })
   }
-          do.call(tags$tr, lapply(c(list(paste0(func, '('), args, ')')), tags$td))
+  # 
+  do.call(tags$tr, lapply(c(list(paste0(func, '(')), 
+                            args,  
+                            list(')')), tags$td))
   
   
 }
 
 
-transformExpression <- function(input) {
+humdrumRexpression <- function(input, humdata) {
   # simple <- if (!input$pitchArg_complex) 'simple = TRUE'
   # generic <- if (!input$pitchArg_specific) 'generic = TRUE'
   # args <- paste(c('Token', simple, generic), collapse = ', ')
   
-  funcs <- getTransformFunctions(input)
-  
-  calls <- sapply(funcs, funcExpression, input = input)
-  
-  fieldName <- stringr::str_to_title(funcs)
-  
-  funcs <- paste(paste0(fieldName, ' = ', calls), collapse = ',\n         ')
-  paste0('humdrumData |>\n',
-         '  ', 'mutate(', funcs,')')
+  expression <- 'humdrumData'
+
+  expression <- paste(c(expression, 
+                        filterCall(input, humdata),
+                        mutateCall(input)), 
+                      collapse = ' |>\n  ')
+  expression
+
 }
 
+mutateCall <- function(input) {
+  transformFuncs <- input$transformFunctions
+  
+  if (length(transformFuncs) == 0L) return(NULL)
+  transformCalls <- sapply(transformFuncs, funcExpression, input = input)
+  
+  fieldNames <- stringr::str_to_title(transformFuncs)
+  transformCalls <- paste(paste0(fieldNames, ' = ', transformCalls), 
+                          collapse = ',\n         ')
+  paste0('  ', 'mutate(', transformCalls, ')')
+  
+  
+}
+
+filterCall <- function(input, humdata) {
+  predicates <- c()
+  
+  # filter exclusive
+  exclusive <- input$filter_exclusive
+  
+  if (length(exclusive)) {
+    exclusive <- paste0("'", exclusive, "'")
+    
+    if (length(exclusive) > 1L) exclusive <- paste0('c(', paste(exclusive, sep = ', '), ')')
+    predicates <- c(predicates, paste0('Exclusive %in% ', exclusive))
+  }
+  
+  # filter spine
+  range <- range(humdata$Spine)
+  predicates <- c(predicates,
+                  if (range[1] != input$filter_spine[1]) paste0(input$filter_spine[1], ' <= Spine'),
+                  if (range[2] != input$filter_spine[2]) paste0('Spine <= ', input$filter_spine[2]))
+  
+  
+  if (length(predicates)) paste0('  filter(', paste(predicates, collapse = ' & '), ')')
+}
+
+
 funcExpression <- function(func, input) {
-  argsTable <- subset(args_TF, Func == func)
+  args <- c('Token')
   
-  inputs <- unlist(lapply(argsTable$Default, \(default) input[[paste0(func, '_arg_', default)]]))
-  argsTable <- argsTable[!inputs, ]
+  args_library <- args_library[Func == func]
+  args_library$Input <- unlist(lapply(args_library$Arg, \(default) input[[paste0(func, '_arg_', default)]]))
   
-  args <- c('Token', if (nrow(argsTable)) with(argsTable, paste0(Option, ' = TRUE')))
+  args <- c(args, 
+            args_library[Type == 'TF' & Input == FALSE, if (length(Options)) paste0(sapply(Options, '[', 2L), ' = TRUE')],
+            args_library[Type == 'select', if (length(Options)) paste0(Arg, ' = "', Input, '"')])
   
   args <- paste(args, collapse = ', ')
   
@@ -72,6 +125,12 @@ funcExpression <- function(func, input) {
   
   
   
+}
+
+evalExpression <- function(input, humdrumData) {
+  expr <- humdrumRexpression(input, humdrumData)
+  
+  eval(parse(text = expr)[[1]])
 }
 
 
@@ -184,6 +243,76 @@ shinyServer(function(input, output, session) {
         interpretations(humData())
     })
     
+    # Rendering ui_filter ----
+    
+    output$filter_exclusive <- renderUI( {
+      req(humData())
+      
+      choices <- unique(humData()$Exclusive)
+      
+      selectizeInput('filter_exclusive', label = 'Exclusive interpretations',
+                     choices = setNames(choices, paste0('**', choices)),
+                     selected = NULL, multiple = TRUE)
+    })
+    
+    output$filter_spine <- renderUI( {
+      req(humData())
+      
+      range <- range(humData()$Spine)
+      sliderInput('filter_spine',
+                  'Spine',
+                  min = range[1], max = range[2],
+                  value = range, step = 1)
+     
+    })
+    
+    # Rendering ui_transform ----
+    
+    
+    output$transformSelect <- renderUI({
+                        selectizeInput(inputId = 'transformFunctions',
+                                       label = 'Select transform functions', 
+                                       choices = func_library, multiple = TRUE, selected = NULL)
+      })
+      
+    
+    output$transformFunctions <- renderUI({
+      funcs <- input$transformFunctions
+      
+      if (length(funcs)) {
+        do.call(tags$table, lapply(funcs, makeFuncCaller))
+        } else {
+          div('No functions selected')
+        }
+      
+    })
+    # 
+ 
+    
+    # 
+    output$humdrumRexpression1 <- renderUI({ pre(humdrumRexpression(input, humData())) })
+    output$humdrumRexpression2 <- renderUI({ pre(humdrumRexpression(input, humData())) })
+    #   
+  
+    # 
+    # output$plotButton <- renderUI({
+    #   actionButton('plotAction', 'Plot')
+    # })
+    # 
+    # output$plotSelect <- renderUI({
+    #   choices <- c('hist', 'boxplot')
+    #   selectInput('plotSelect_', 'Plot Type', choices = choices,  
+    #               selected = 'hist')
+    # })
+    # 
+    # observeEvent({input$plotAction}, {
+    #   func <- rlang::sym(input$plotSelect_)
+    #   activeField <- rlang::sym(selectedFields(humData())[1])
+    #   funccall <- rlang::expr((!!func)(!!activeField))
+    #   formula <- rlang::new_formula(quote(do), funccall)
+    #   output$plotRender <- renderPlot(within(humData(), formula))
+    # })
+    
     ## Rendering ui_view ----
     
     
@@ -206,10 +335,10 @@ shinyServer(function(input, output, session) {
     output$view_fieldSelect <- renderUI( {
       req(humData())
       
-      fields <- fields(humData(), 'Data')$Name 
+      fields <- c('Token', stringr::str_to_title(input$transformFunctions))
       if (input$view_type %in% c('humdrumR', 'data.frame') && length(fields) > 1L) {
         
-        fluidPage(shiny::p(humdrumR:::num2print(length(fields), capitalize = TRUE), 'data fields available to view.'),
+        fluidPage(shiny::p(humdrumR:::num2print(length(fields) , capitalize = TRUE), 'data fields available to view.'),
                   
                   selectInput('view_fieldSelect', 
                               'Select data fields to view' , multiple = TRUE,
@@ -225,7 +354,9 @@ shinyServer(function(input, output, session) {
         req(humData())
       
         humdata <- humData()[as.integer(input$view_fileSelect)]
+        humdata <- evalExpression(input, humdata)
         if (!is.null(input$view_fieldSelect)) humdata <- humdrumR:::selectFields(humdata, input$view_fieldSelect)
+        
         print(humdata, 
               view = if (input$view_type == 'data.frame') 'table' else 'humdrum', 
               dataTypes = if (input$view_type == 'humdrumR') 'GLIMDd' else 'D')
@@ -254,74 +385,20 @@ shinyServer(function(input, output, session) {
       showHumdrumNotation(x)
     })
     
+    ## Rendering ui_tabulate ----
     
-    
-    ## Transform tab
-    
-    
-    output$transformSelect <- renderUI({
-      tabpanels <- lapply(names(func_library),
-             \(type) {
-               tabPanel(type, style = 'height:300px;',
-                        selectizeInput(inputId = paste0('transformFunctions_', type),
-                                       label = paste0(type, ' functions'),
-                                       choices = func_library[[type]], multiple = TRUE, selected = NULL))
-             })
+    output$tabulate <- renderPlot({
+      req(humData())
       
-       do.call('tabsetPanel', tabpanels)
-    })
-    
-    output$transformFunctions <- renderUI({
-      funcs <- getTransformFunctions(input)
+      humdata <- humData()[as.integer(input$view_fileSelect)]
+      humdata <- evalExpression(input, humdata)
+      if (!is.null(input$view_fieldSelect)) humdata <- humdrumR:::selectFields(humdata, input$view_fieldSelect)
       
-      if (length(funcs)) {
-        do.call(tags$table, lapply(funcs, makeFuncCaller))
-        } else {
-          div('No functions selected')
-        }
+      tally(humdata) |> draw()
       
     })
-    # 
- 
-    # 
-    output$transformFieldName <- renderUI({
-        textInput('transformFieldname', 'New Field Name', 
-                  value = stringr::str_to_title(input$transformSelect))
-    })
-    # 
-    output$transformButton <- renderUI({
-        actionButton('transformAction', 'Execute and save to new field')
-    })
-    # 
-    output$transformExpression <- renderUI({
-      pre(transformExpression(input))
-    })
-    #   
-    observeEvent({input$transformAction},
-        {
-             expr <- transformExpression(input)
-             expr <- gsub('humdrumData', 'humData()', expr)
-             
-             humData(eval(parse(text = expr)[[1]]))
-        })
-    # 
-    # output$plotButton <- renderUI({
-    #   actionButton('plotAction', 'Plot')
-    # })
-    # 
-    # output$plotSelect <- renderUI({
-    #   choices <- c('hist', 'boxplot')
-    #   selectInput('plotSelect_', 'Plot Type', choices = choices,  
-    #               selected = 'hist')
-    # })
-    # 
-    # observeEvent({input$plotAction}, {
-    #   func <- rlang::sym(input$plotSelect_)
-    #   activeField <- rlang::sym(selectedFields(humData())[1])
-    #   funccall <- rlang::expr((!!func)(!!activeField))
-    #   formula <- rlang::new_formula(quote(do), funccall)
-    #   output$plotRender <- renderPlot(within(humData(), formula))
-    # })
+
+    
 })
 
 
